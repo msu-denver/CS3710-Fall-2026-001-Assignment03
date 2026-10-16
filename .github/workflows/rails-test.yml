@@ -1,0 +1,120 @@
+name: Run Ruby on Rails Tests and Static Analysis
+
+on: [push, pull_request]
+
+# Each job shows up as its own check on GitHub, so students can see
+# which part failed. Static analysis counts for 20% of the grade.
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      # The four scaffolds give 28 runs and 44 assertions; the seven required
+      # validation tests add at least 7 of each. Students may add more.
+      MIN_RUNS: 35
+      MIN_ASSERTIONS: 51
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 1. Set up Ruby. With no ruby-version given, setup-ruby uses the
+      #    project's .ruby-version file, so CI matches what the student used.
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          bundler-cache: true # Runs 'bundle install' and caches gems
+
+      # 2. Set up and seed the database.
+      #    'bundle exec rails' works even when bin/rails was committed from
+      #    Windows without the executable bit or with a ruby.exe shebang.
+      #    db:migrate (not db:prepare, which also seeds a new database) so
+      #    the seeds run once, as the README says.
+      - name: Set up database
+        run: bundle exec rails db:migrate
+
+      - name: Seed the database
+        run: bundle exec rails db:seed
+
+      # 3. Run the tests. pipefail keeps a test failure from being hidden by tee.
+      - name: Run Rails tests
+        run: |
+          set -o pipefail
+          bundle exec rails test | tee test-output.txt
+
+      # 4. Require at least the assignment's tests and assertions, with no
+      #    failures or errors.
+      - name: Verify test output
+        run: |
+          summary=$(grep -E "[0-9]+ runs, [0-9]+ assertions" test-output.txt | tail -1)
+          runs=$(echo "$summary" | sed -E 's/^([0-9]+) runs.*/\1/')
+          assertions=$(echo "$summary" | sed -E 's/.* ([0-9]+) assertions.*/\1/')
+          echo "Test summary: $summary"
+          if echo "$summary" | grep -qE "(^|[^0-9])0 failures, 0 errors" \
+             && [ "${runs:-0}" -ge "$MIN_RUNS" ] && [ "${assertions:-0}" -ge "$MIN_ASSERTIONS" ]; then
+            echo "✓ All tests pass with at least $MIN_RUNS tests and $MIN_ASSERTIONS assertions"
+          else
+            echo "✗ Expected 0 failures, 0 errors, at least $MIN_RUNS tests, and at least $MIN_ASSERTIONS assertions"
+            exit 1
+          fi
+
+  rubocop:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # The analysis tools don't depend on the app's gems, so a fixed Ruby
+      # and pinned tool versions give every student the same rules.
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.4'
+
+      - name: Install RuboCop with the Rails omakase style
+        run: gem install --no-document rubocop-rails-omakase -v 1.1.0
+
+      # Use the standard Rails style for everyone, ignoring any local
+      # .rubocop.yml, so loosening the rules doesn't change the result.
+      - name: Lint code for consistent style
+        env:
+          BUNDLE_GEMFILE: ${{ runner.temp }}/no-Gemfile # keep the app's bundle out of it
+        run: |
+          style=$(gem contents rubocop-rails-omakase | grep '/rubocop.yml$' | head -1)
+          cat > "$RUNNER_TEMP/rubocop.yml" <<EOF
+          inherit_from:
+            - $style
+          AllCops:
+            NewCops: disable
+            SuggestExtensions: false
+            Exclude:
+              - "vendor/**/*"
+              - "db/schema.rb"
+              - "bin/**/*"
+              - "tmp/**/*"
+              - "node_modules/**/*"
+          EOF
+          rubocop -c "$RUNNER_TEMP/rubocop.yml" app config db lib test
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.4'
+
+      - name: Install Brakeman and bundler-audit
+        run: gem install --no-document brakeman -v 8.1.0 bundler-audit -v 0.9.3
+
+      # Brakeman checks the Rails code for security problems. The
+      # end-of-life checks are skipped here because bundler-audit below
+      # reports the dependencies that actually have known vulnerabilities.
+      - name: Scan for Rails security vulnerabilities
+        run: brakeman --no-pager --except CheckEOLRails,CheckEOLRuby
+
+      - name: Scan gems for known vulnerabilities
+        run: bundle-audit check --update
