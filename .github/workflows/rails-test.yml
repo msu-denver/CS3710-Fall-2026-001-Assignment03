@@ -108,7 +108,7 @@ jobs:
           ruby-version: '3.4'
 
       - name: Install Brakeman and bundler-audit
-        run: gem install --no-document brakeman -v 8.1.0 bundler-audit -v 0.9.3
+        run: gem install --no-document brakeman:8.1.0 bundler-audit:0.9.3
 
       # Brakeman checks the Rails code for security problems. The
       # end-of-life checks are skipped here because bundler-audit below
