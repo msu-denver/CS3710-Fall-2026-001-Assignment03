@@ -61,8 +61,10 @@ SQL injection.
 ### Conventions from Assignment 2
 
 - No foreign keys displayed
-- Appropriate drop-downs, and check boxes for choosing a student's
-  sections
+- Appropriate drop-downs for a section's course and semester
+- Check boxes on the student form to choose the student's sections, and
+  check boxes on the section form to choose the section's students
+  (`collection_check_boxes`)
 - When showing a semester or a course, show all associated sections
 - When showing a section, show its students; when showing a student,
   show their sections
